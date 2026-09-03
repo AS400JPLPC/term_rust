@@ -118,9 +118,9 @@ Alternative légère à d’autres terminaux.
   
 <br />
 
-![neovim_vte3](2026-01-15_21-55-52_neovim_vte3.png)
+![neovim_vte3](asset/2026-01-15_21-55-52_neovim_vte3.png)
 <br />
 <br />
 
-![menu-sh](2026-01-15_21-57-16_menu.png)
+![menu-sh](asset/2026-01-15_21-57-16_menu.png)
 <br />
