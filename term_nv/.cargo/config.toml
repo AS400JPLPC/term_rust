@@ -1,0 +1,27 @@
+[profile.dev]
+opt-level = 0
+incremental = true     # Active la compilation incrémentielle
+overflow-checks = true # Vérifie les débordements d'entiers
+
+[profile.release]
+opt-level = 2          # Optimise pour la vitesse (sans casser regex)
+incremental = true     # Compilation incrémentielle
+lto = true             # Link Time Optimization
+overflow-checks = true # Vérifie les débordements
+strip = false          # Garde les symboles de débogage
+panic = "unwind"       # Affiche la pile en cas de panique
+
+
+
+[build]
+rustflags = ["--deny=warnings"]
+
+[lints.clippy]
+pedantic = "warn"
+needless_return = "allow"
+
+[language-server.rust-analyzer]
+checkOnSave = { command = "clippy" }
+files = { exclude = ["**/target/*"] }
+
+
