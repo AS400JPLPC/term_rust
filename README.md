@@ -4,7 +4,7 @@
 Ce projet est né d’un besoin de contrôle total sur le comportement du terminal, notamment pour éviter les distorsions avec les touches du clavier.  
   
 ## 🔧 Pourquoi un terminal en Rust ?
-**<u>Avantage</u>**  
+<u>Avantage</u>  
 . Sécurité mémoire (pas de segfaults, gestion propre des pointeurs).  
 
 . Performance (rapidité d’exécution, faible latence).  
@@ -46,7 +46,7 @@ voir le fichier Cargo.toml
 
 ## 🔄 Migration depuis un terminal en C  
 
-**<u>Pourquoi repenser le terminal en Rust ?</u>**  
+<u>Pourquoi repenser le terminal en Rust ?</u>  
 
 . Sécurité : Éviter les erreurs de gestion mémoire (ex: malloc, free).  
 
@@ -54,7 +54,7 @@ voir le fichier Cargo.toml
 
 . Maintenabilité : Code plus lisible et modulaire.  
 
-*<u>*Difficultés rencontrées :</u>**  
+<u>*Difficultés rencontrées :</u>  
 . Gestion des pointeurs : Utilisation de AtomicPtr et AtomicBool pour la thread-safety.  
 
 . Intégration avec VTE : Adaptation des appels système (vte_terminal_spawn_sync).  
@@ -62,7 +62,7 @@ voir le fichier Cargo.toml
 . Compatibilité : Assurer que le terminal fonctionne avec les normes (ex: . . . . .  TERM=xterm-256color).  
 
 
-**<u> Personalisation</u>**  
+<u> Personalisation</u>  
 
 . Modifier TERMINAL_COLS et TERMINAL_ROWS pour ajuster la taille.  
 
@@ -72,9 +72,11 @@ voir le fichier Cargo.toml
 
     
   
+<u>Configuration du terminal VTE</u>  
+  
 
 ```  
-**<u>Configuration du terminal VTE</u>**
+
 let terminal = vte_sys::vte_terminal_new();  
 
 vte_sys::vte_terminal_set_font(terminal, font_desc as *const _);  
@@ -122,7 +124,7 @@ exit 0
 ```  
   
   
-**Prérequis :**  
+<u>Prérequis :</u>  
 
 Rust (version stable ou nightly).  
 
