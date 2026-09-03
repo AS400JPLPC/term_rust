@@ -1,12 +1,10 @@
 # Un terminal Rust minimaliste pour Neovim
 
 ## 📌 Introduction
-**Pourquoi**  
-
 Ce projet est né d’un besoin de contrôle total sur le comportement du terminal, notamment pour éviter les distorsions avec les touches du clavier.  
   
 ## 🔧 Pourquoi un terminal en Rust ?
-**Avantage**  
+**<u>Avantage</u>**  
 . Sécurité mémoire (pas de segfaults, gestion propre des pointeurs).  
 
 . Performance (rapidité d’exécution, faible latence).  
@@ -48,7 +46,7 @@ voir le fichier Cargo.toml
 
 ## 🔄 Migration depuis un terminal en C  
 
-**Pourquoi repenser le terminal en Rust ?  
+**<u>Pourquoi repenser le terminal en Rust ?</u>**  
 
 . Sécurité : Éviter les erreurs de gestion mémoire (ex: malloc, free).  
 
@@ -56,7 +54,7 @@ voir le fichier Cargo.toml
 
 . Maintenabilité : Code plus lisible et modulaire.  
 
-**Difficultés rencontrées :  
+*<u>*Difficultés rencontrées :</u>**  
 . Gestion des pointeurs : Utilisation de AtomicPtr et AtomicBool pour la thread-safety.  
 
 . Intégration avec VTE : Adaptation des appels système (vte_terminal_spawn_sync).  
@@ -64,7 +62,8 @@ voir le fichier Cargo.toml
 . Compatibilité : Assurer que le terminal fonctionne avec les normes (ex: . . . . .  TERM=xterm-256color).  
 
 
-** Personalisation**
+**<u> Personalisation</u>**  
+
 . Modifier TERMINAL_COLS et TERMINAL_ROWS pour ajuster la taille.  
 
 . Changer la police dans vte_terminal_set_font.  
@@ -75,7 +74,7 @@ voir le fichier Cargo.toml
   
 
 ```  
-**Configuration du terminal VTE**
+**<u>Configuration du terminal VTE</u>**
 let terminal = vte_sys::vte_terminal_new();  
 
 vte_sys::vte_terminal_set_font(terminal, font_desc as *const _);  
@@ -84,11 +83,11 @@ vte_sys::vte_terminal_set_size(terminal, TERMINAL_COLS, TERMINAL_ROWS);
 
 vte_sys::vte_terminal_set_scrollback_lines(terminal, 0);  
 
-...
+
 // Lancer Neovim dans le terminal
 let command = CString::new("/usr/bin/nvim").unwrap();
 let mut command_args = vec![command.into_raw(), ptr::null_mut()];
-...
+
 vte_sys::vte_terminal_spawn_sync(
     terminal,
     vte_sys::VTE_PTY_DEFAULT,
