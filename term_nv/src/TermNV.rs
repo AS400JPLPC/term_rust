@@ -1,19 +1,18 @@
 use std::ffi::{CStr, CString};
 
-use gdk::*;
-use glib::ObjectExt;
-
+use gtk::ApplicationWindow;
 use gtk::prelude::*;
 use gtk::*;
-use gtk::{ApplicationWindow, ButtonsType, HeaderBar, MessageDialog, MessageType};
 
-use once_cell::sync::Lazy;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 
+use glib::object::ObjectExt;
 use glib::translate::*;
-use libc::{EXIT_FAILURE, EXIT_SUCCESS, pid_t};
+use libc::{EXIT_FAILURE, EXIT_SUCCESS};
+use once_cell::sync::Lazy;
 use std::env;
+
+use std::io::Write; // Requis pour utiliser writeln! sur un fichier
 
 const TERMINAL_COLS: i64 = 127;
 const TERMINAL_ROWS: i64 = 42;
@@ -27,288 +26,297 @@ const PGM_LIB_DIR: &str = "/usr/bin/";
 
 const WORPGM: &str = "nvim";
 
+const GRAVITY_STATIC: i32 = 10;
+
 // Liste des programmes autorisés (clé LDA)
 const AUTHORIZED_PROGRAMS: &[&str] = &["nvim"];
 
 // Vérifie si le programme est autorisé
 fn is_authorized_program(program_name: &str) -> bool {
-    AUTHORIZED_PROGRAMS.contains(&program_name)
+	AUTHORIZED_PROGRAMS.contains(&program_name)
 }
 
 // Construit le chemin complet vers le programme
 fn get_program_path(program_name: &str) -> &'static str {
-    let s = format!("{}{}", PGM_LIB_DIR, program_name);
-    std::boxed::Box::leak(s.into_boxed_str())
+	let s = format!("{}{}",  PGM_LIB_DIR, program_name); // spéciphic nvim
+	std::boxed::Box::leak(s.into_boxed_str())
+}
+
+fn get_path(lib_src: &str) -> &'static str {
+	let s = format!("{}", lib_src); // spéciphic nvim
+	std::boxed::Box::leak(s.into_boxed_str())
 }
 
 //===============================================================
+//une fonction pour debug
 
+fn log_message(msg: &str) {
+	let timestamp = chrono::Local::now().format("%H:%M:%S");
+
+	// 1. Affichage dans la console
+	println!("[{}] {}", timestamp, msg);
+
+	// 2. Écriture dans le fichier "terminal.log" du répertoire courant
+	// .create(true) : crée le fichier s'il n'existe pas
+	// .append(true) : ajoute le texte à la fin du fichier sans l'écraser
+	if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("terminal.log") {
+		// Écrit la ligne dans le fichier
+		let _ = writeln!(file, "[{}] {}", timestamp, msg);
+	}
+}
 //================================
-// gestion ALT_F4 et log_message
+/// Affiche une boîte de dialogue d'erreur bloquante (Modal)
+fn afficher_erreur_fatale(titre: &str, message: &str) {
+	// Crée une boîte de message GTK de type Erreur avec un bouton OK
+	let dialog = gtk::MessageDialog::new(
+		None::<&gtk::Window>,	 // Pas de fenêtre parente car l'application n'a pas démarré
+		gtk::DialogFlags::MODAL, // Bloque l'application tant qu'on n'a pas cliqué
+		gtk::MessageType::Error, // Style d'erreur rouge
+		gtk::ButtonsType::Ok,	 // Bouton de fermeture unique
+		titre,
+	);
 
-// Pointeurs atomiques globaux pour la fenêtre et le terminal
-static WINDOW_PTR: AtomicPtr<gtk_sys::GtkWindow> = AtomicPtr::new(ptr::null_mut());
-// Variable globale thread-safe
-pub static STATE_CLOSE: AtomicBool = AtomicBool::new(false); // continue
+	// Ajoute le texte explicitatif détaillé
+	dialog.set_secondary_text(Some(message));
+
+	// Exécute la boîte de dialogue en mode bloquant et attend le clic
+	dialog.run();
+
+	// Détruit proprement le widget avant de quitter
+	unsafe {
+		dialog.destroy();
+	}
+}
+
+// l'application c'est mal terminer
+fn terminal_error(window: &ApplicationWindow) {
+	let dialog = MessageDialog::new(
+		Some(window),
+		gtk::DialogFlags::MODAL,
+		MessageType::Error,				   // ou MessageType::Info si tu préfères
+		ButtonsType::Ok,				   // ✅ Un seul bouton "OK"
+		"Veuillez consulter les logs SVP", // Message
+	);
+
+	dialog.run();
+
+	unsafe {
+		dialog.destroy(); // Ferme la boîte de dialogue
+	}
+}
 
 // Fonction pour gérer l'appui sur Alt+F4
-static ALTF4: Lazy<bool> = Lazy::new(|| true); // ou false
+static ALTF4: Lazy<bool> = Lazy::new(|| true); // true for dev
 
 fn key_press_altf4(window: &ApplicationWindow) -> bool {
-    let dialog = MessageDialog::new(
-        Some(window),
-        gtk::DialogFlags::MODAL,
-        MessageType::Question,
-        ButtonsType::YesNo,
-        "Voulez-vous vraiment quitter ?", // Remplace par MESSAGE_ALT_F4
-    );
+	let dialog = MessageDialog::new(
+		Some(window),
+		gtk::DialogFlags::MODAL,
+		MessageType::Question,
+		ButtonsType::YesNo,
+		"Voulez-vous vraiment quitter ?", // Remplace par MESSAGE_ALT_F4
+	);
 
-    let response = dialog.run();
-    unsafe {
-        dialog.destroy();
-    } // Corrigé : bloc unsafe avec accolades
+	let response = dialog.run();
+	unsafe {
+		dialog.destroy();
+	} // Corrigé : bloc unsafe avec accolades
 
-    match response {
-        gtk::ResponseType::Yes => {
-            std::process::exit(EXIT_FAILURE);
-        }
-        _ => {
-            true // Équivalent à GDK_EVENT_STOP
-        }
-    }
+	match response {
+		gtk::ResponseType::Yes => {
+			std::process::exit(EXIT_FAILURE);
+		}
+		_ => true, // Équivalent à GDK_EVENT_STOP
+	}
 }
-
-// l'application ce termine correctement
-fn win_close(_window: &ApplicationWindow) -> bool {
-    let quit = STATE_CLOSE.load(Ordering::SeqCst);
-
-    if quit {
-        std::process::exit(EXIT_SUCCESS);
-    };
-    true
-}
-
-//une fonction pour debug
-// use std::io::Write; // Requis pour utiliser writeln! sur un fichier
-// fn log_message(msg: &str) {
-//     let timestamp = chrono::Local::now().format("%H:%M:%S");
-//
-//     // 1. Affichage dans la console
-//     println!("[{}] {}", timestamp, msg);
-//
-//     // 2. Écriture dans le fichier "terminal.log" du répertoire courant
-//     // .create(true) : crée le fichier s'il n'existe pas
-//     // .append(true) : ajoute le texte à la fin du fichier sans l'écraser
-//     if let Ok(mut file) = std::fs::OpenOptions::new()
-//         .create(true)
-//         .append(true)
-//         .open("terminal.log")
-//     {
-//         // Écrit la ligne dans le fichier
-//         let _ = writeln!(file, "[{}] {}", timestamp, msg);
-//     }
-// }
-
 //============================================
 // gestion du terminal
 //============================================
 
 // 2 arguments
 // le titre de la fenetre Nom du projet etc
-// la bibliothèque  dans la quelle on travail
+// la bibliothèque	dans la quelle on travail
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+	// 1. Initialisation obligatoire de GTK dès le début
+	if gtk::init().is_err() {
+		eprintln!("Impossible d'initialiser GTK.");
+		std::process::exit(1);
+	}
 
-    // Déterminer le programme à exécuter
-    let program_name = WORPGM;
+	let args: Vec<String> = env::args().collect();
 
-    // Répertoire de travail
-    let wrkdir = CString::new(args[2].clone()).expect("Répertoire invalide");
+	// Déterminer le programme à exécuter
+	let program_name = WORPGM;
 
-    if !is_authorized_program(program_name) {
-        eprintln!("Programme non autorisé : {}", program_name);
-        std::process::exit(EXIT_FAILURE);
-    }
+	// Répertoire de travail
+	if args.len() < 2 {
+		// Affiche la boîte de message d'erreur et quitte
+		afficher_erreur_fatale("Paramètre manquant", "Répertoire invalide.");
+		std::process::exit(1);
+	};
+	let wrkdir	= CString::new(get_path(&args[2] )).unwrap();
 
-    // Construire les arguments de la commande
+	if !is_authorized_program(program_name) {
+		afficher_erreur_fatale("erreur fatal", &format!("Programme non autorisé : {}", program_name));
+		std::process::exit(EXIT_FAILURE);
+	}
 
-    // log_message(&format!("args.len() {:?}\n", args.len()));
+	// Construire les arguments de la commande
 
-    let command = CString::new(get_program_path(program_name)).unwrap();
-    let mut command_args = vec![command.into_raw(), ptr::null_mut()];
+	// log_message(&format!("args.len() {:?}\n", args.len()));
 
-    // log_message(&format!("Contenu de command_args: {:?}\n", args_content));
+	let command = CString::new(get_program_path(&program_name)).unwrap();
+	let mut command_args = vec![command.clone().into_raw(), ptr::null_mut()];
 
-    // Construire les variables d'environnement
-    let current_path = env::var("PATH").unwrap_or_default();
-    let new_path = format!("{}:{}", current_path, args[2].clone());
-    let env_term = CString::new("TERM=xterm-256color").expect("TERM invalide");
-    let env_path = CString::new(format!("PATH={}", new_path)).expect("PATH invalide");
 
-    let mut envp_args: Vec<*mut libc::c_char> = vec![
-        env_term.into_raw(),
-        env_path.into_raw(),
-        ptr::null_mut(), // Terminer par NULL
-    ];
+	// Construire les variables d'environnement
+	let current_path = env::var("PATH").unwrap_or_default();
+	let new_path = format!("{}:{}", current_path, get_path(&args[2] ));
 
-    // Variable pour stocker le PID de l'enfant
-    let mut child_pid: pid_t = 0;
+	let env_term = CString::new("TERM=xterm-256color").expect("TERM invalide");
+	let env_path = CString::new(format!("PATH={}", new_path)).expect("PATH invalide");
 
-    //===================================================
-    //construire le terminal
-    //===================================================
+	let mut envp_args: Vec<*mut libc::c_char> = vec![
+		env_term.into_raw(),
+		env_path.into_raw(),
+		ptr::null_mut(), // Terminer par NULL
+	];
 
-    // Initialiser GTK
-    gtk::init().expect("Échec de l'initialisation de GTK");
+	//===================================================
+	//construire le terminal
+	//===================================================
 
-    // Créer une fenêtre GTK
-    // le titre vas être determiner par l'applicattion du terminal
-    let window = gtk::ApplicationWindow::builder().title(args[1].clone()).build();
+	// Créer une fenêtre GTK
+	// le titre vas être determiner par l'applicattion du terminal
+	let window = gtk::ApplicationWindow::builder().title(args[1].clone()).build();
+	let window_clone = window.clone();
+	// active le redimensionnement de la fenêtre
+	window.set_resizable(true);
 
-    // active le redimensionnement de la fenêtre
-    window.set_resizable(true);
+	// Contrôler la possibilité de fermer la fenêtre
+	window.set_deletable(*ALTF4);
 
-    // Contrôler la possibilité de fermer la fenêtre
-    window.set_deletable(*ALTF4);
+	// Dans ton code principal, après avoir créé la fenêtre :
+	// mode développeur
+	// Dans ton code principal, après avoir créé la fenêtre :
+	if *ALTF4 {
+		// mode développeur
+		window.connect_delete_event(|window, _| key_press_altf4(&window.clone()).into());
+	}
 
-    // Dans ton code principal, après avoir créé la fenêtre :
-    // Dans ton code principal, après avoir créé la fenêtre :
-    if *ALTF4 {
-        // mode développeur
-        window.connect_delete_event(|window, _| key_press_altf4(&window.clone()).into());
-    } else {
-        //envirronement programeur TEST
-        let header_bar = HeaderBar::new();
+	unsafe {
+		let terminal = vte_sys::vte_terminal_new();
 
-        header_bar.set_decoration_layout(None);
-        window.set_titlebar(Some(&header_bar));
+		// 1. Configurer la police avec le bon nom
+		let font_desc = pango::FontDescription::from_string("FiraCode Nerd Font Regular 14");
 
-        // uniquement si l'application terminal est close
-        window.connect_delete_event(|window, _| win_close(&window.clone()).into());
-    }
+		// 2. On extrait le pointeur avec son type FFI interne exact, puis on le cast pour vte_sys
+		let raw_ptr: *const pango::ffi::PangoFontDescription = font_desc.to_glib_none().0;
+		vte_sys::vte_terminal_set_font(terminal, raw_ptr as *const _);
 
-    unsafe {
-        // Stocker les pointeurs globaux
-        WINDOW_PTR.store(window.as_ptr() as *mut gtk_sys::GtkWindow, Ordering::SeqCst);
-        let window_ptr = WINDOW_PTR.load(Ordering::SeqCst);
+		vte_sys::vte_terminal_set_size(terminal, TERMINAL_COLS, TERMINAL_ROWS);
+		vte_sys::vte_terminal_set_scrollback_lines(terminal, 0);
+		vte_sys::vte_terminal_set_scroll_on_output(terminal, 0);
+		vte_sys::vte_terminal_set_scroll_on_keystroke(terminal, 0);
+		vte_sys::vte_terminal_set_mouse_autohide(terminal, 1);
+		vte_sys::vte_terminal_set_cursor_blink_mode(terminal, vte_sys::VTE_CURSOR_BLINK_ON);
+		vte_sys::vte_terminal_set_cursor_shape(terminal, vte_sys::VTE_CURSOR_SHAPE_BLOCK);
 
-        // // Récupérer le GdkWindow associé au GtkWindow
-        // let gdk_window = gtk_sys::gtk_widget_get_window(window_ptr as *mut gtk_sys::GtkWidget);
-        // gdk_sys::gdk_window_move(gdk_window, 10 as i32, 10 as i32);
+		// Variable pour stocker le PID de l'enfant
+		let mut child_pid_raw: std::os::raw::c_int = 0;
+		let raw_flags = glib::SpawnFlags::SEARCH_PATH | glib::SpawnFlags::FILE_AND_ARGV_ZERO;
+		let spawn_result = vte_sys::vte_terminal_spawn_sync(
+			terminal,
+			vte_sys::VTE_PTY_DEFAULT,
+			wrkdir.as_ptr(),
+			command_args.as_mut_ptr(),
+			envp_args.as_mut_ptr(),
+			raw_flags.into_glib() as u32,
+			None,
+			ptr::null_mut(),
+			&mut child_pid_raw,
+			ptr::null_mut(),
+			ptr::null_mut(),
+		);
 
-        let terminal = vte_sys::vte_terminal_new();
+		let window_app = window_clone.clone();
+		if spawn_result == glib::ffi::GFALSE {
+			log_message("Erreur critique : Impossible de démarrer le terminal VTE (vte_terminal_spawn_sync a échoué).");
 
-        // 1. Configurer la police avec le bon nom
-        let font_desc = pango_sys::pango_font_description_from_string(
-            CString::new("FiraCode Nerd Font Regular 14").unwrap().as_ptr(),
-        );
-        vte_sys::vte_terminal_set_font(terminal, font_desc as *const _);
+			// Optionnel : Afficher l'erreur graphique immédiatement car la closure ne s'exécutera jamais
+			terminal_error(&window_app);
+		}
 
-        vte_sys::vte_terminal_set_size(terminal, TERMINAL_COLS, TERMINAL_ROWS);
-        vte_sys::vte_terminal_set_scrollback_lines(terminal, 0);
-        vte_sys::vte_terminal_set_scroll_on_output(terminal, 0);
-        vte_sys::vte_terminal_set_scroll_on_keystroke(terminal, 0);
-        vte_sys::vte_terminal_set_mouse_autohide(terminal, 1);
-        vte_sys::vte_terminal_set_cursor_blink_mode(terminal, vte_sys::VTE_CURSOR_BLINK_ON);
-        vte_sys::vte_terminal_set_cursor_shape(terminal, vte_sys::VTE_CURSOR_SHAPE_BLOCK);
+		// Libérer les arguments de la commande
+		for &arg in &command_args {
+			if !arg.is_null() {
+				drop(CString::from_raw(arg)); // Libère la mémoire explicitement
+			}
+		}
+		// Libérer les variables d'environnement
+		for &arg in &envp_args {
+			if !arg.is_null() {
+				drop(CString::from_raw(arg)); // Libère la mémoire explicitement
+			}
+		}
 
-        // // Lancer la commande
-        // let wrkdir = CString::new(PGM_LIB_DIR).unwrap();
-        // let command = CString::new("/home/soleil/Zrust/gen_sda/gensda").unwrap();
-        // let mut args: Vec<*mut libc::c_char> = vec![command.into_raw(), ptr::null_mut()];
-        // let mut child_pid: pid_t = 0;
+		// Convertir le terminal en widget GTK
+		let terminal_widget: gtk::Widget = from_glib_none(terminal as *mut gtk::ffi::GtkWidget);
 
-        let spawn_result = vte_sys::vte_terminal_spawn_sync(
-            terminal,
-            vte_sys::VTE_PTY_DEFAULT,
-            wrkdir.as_ptr(),
-            command_args.as_mut_ptr(),
-            envp_args.as_mut_ptr(),
-            glib_sys::G_SPAWN_SEARCH_PATH | glib_sys::G_SPAWN_FILE_AND_ARGV_ZERO,
-            None,
-            ptr::null_mut(),
-            &mut child_pid,
-            ptr::null_mut(),
-            ptr::null_mut(),
-        );
+		window.add(&terminal_widget);
 
-        if spawn_result == 0 {
-            eprintln!("Erreur lors du spawn du processus dans le terminal");
-        }
+		// Convertir le pointeur brut en un objet glib::Object
+		let terminal_obj = glib::Object::from_glib_none(terminal as *mut _);
 
-        // Libérer les arguments de la commande
-        for &arg in &command_args {
-            if !arg.is_null() {
-                drop(CString::from_raw(arg)); // Libère la mémoire explicitement
-            }
-        }
-        // Libérer les variables d'environnement
-        for &arg in &envp_args {
-            if !arg.is_null() {
-                drop(CString::from_raw(arg)); // Libère la mémoire explicitement
-            }
-        }
+		// Connecter le signal "resize-window" avec connect_unsafe
+		let _handler_id_resize = terminal_widget.connect_unsafe("resize-window", false, |args| {
+			let cols = args[1].get::<u32>().unwrap();
+			let rows = args[2].get::<u32>().unwrap();
 
-        // Convertir le terminal en widget GTK
-        let terminal_widget = gtk::Widget::from_glib_none(terminal as *mut gtk_sys::GtkWidget);
-        window.add(&terminal_widget);
+			// Récupérer le terminal depuis args[0]
+			let width = vte_sys::vte_terminal_get_char_width(terminal);
+			let height = vte_sys::vte_terminal_get_char_height(terminal);
 
-        // Convertir le pointeur brut en un objet glib::Object
-        let terminal_obj = glib::Object::from_glib_none(terminal as *mut _);
+			if width > 0 && height > 0 {
+				window.resize(((width * (cols + 1) as i64) - 9) as i32, ((height * (rows + 1) as i64) - 10) as i32);
+			} else {
+				afficher_erreur_fatale("resize-window", "Erreur : width ou height est <= 0");
+				std::process::exit(EXIT_FAILURE);
+			}
 
-        // Connecter le signal "resize-window" avec connect_unsafe
-        let _handler_id_resize = terminal_obj.connect_unsafe("resize-window", false, |args| {
-            let cols = args[1].get::<u32>().unwrap();
-            let rows = args[2].get::<u32>().unwrap();
+			None
+		});
 
-            // Récupérer le terminal depuis args[0]
-            let width = vte_sys::vte_terminal_get_char_width(terminal);
-            let height = vte_sys::vte_terminal_get_char_height(terminal);
+		// Connecter le signal "window-title-changed" avec connect_unsafe
+		let _handler_id_title = terminal_widget.connect_unsafe("window-title-changed", false, move |_| {
+			let title_ptr = vte_sys::vte_terminal_get_window_title(terminal);
+			if !title_ptr.is_null() {
+				let title = CStr::from_ptr(title_ptr).to_string_lossy();
 
-            if width > 0 && height > 0 {
-                gtk_sys::gtk_window_resize(
-                    window_ptr,
-                    ((width * (cols + 1) as i64) - 9) as i32,
-                    ((height * (rows + 1) as i64) - 10) as i32,
-                );
-            } else {
-                eprintln!("Erreur : width ou height est <= 0");
-            }
+				// On utilise le clone ici, ce qui évite de bloquer la variable `window` d'origine
+				window_clone.set_title(&title);
+			}
+			None
+		});
 
-            None
-        });
+		let _close_child = terminal_obj.connect_unsafe("child-exited", false, |_| {
+			std::process::exit(EXIT_SUCCESS);
+		});
 
-        // Connecter le signal "window-title-changed" avec connect_unsafe
-        let _handler_id_title = terminal_obj.connect_unsafe("window-title-changed", false, move |_| {
-            let title_ptr = vte_sys::vte_terminal_get_window_title(terminal);
-            if !title_ptr.is_null() {
-                let title = CStr::from_ptr(title_ptr).to_string_lossy();
-                let window = gtk::Window::from_glib_none(window_ptr);
-                window.set_title(&title);
-            }
-            None
-        });
+		// let _close_terminal = terminal_obj.connect_unsafe("destroy", false, |_| {
+		//	window.close();
+		//
+		//	None
+		// });
+	};
 
-        let _close_child = terminal_obj.connect_unsafe("child-exited", false, |_| {
+	// permet de déplacer et de rester static pour l'application
 
-                std::process::exit(EXIT_SUCCESS);
+	window.set_gravity(unsafe { glib::translate::from_glib(GRAVITY_STATIC) });
 
-        });
+	window.show_all();
 
-        let _close_terminal = terminal_obj.connect_unsafe("destroy", false, |_| {
-            STATE_CLOSE.store(true, Ordering::SeqCst);
-
-            window.close();
-
-            None
-        });
-    };
-
-    // permet de déplacer et de rester static pour l'application
-    window.set_gravity(Gravity::Static);
-    window.show_all();
-
-    // Lancer la boucle principale GTK
-    gtk::main();
+	// Lancer la boucle principale GTK
+	gtk::main();
 }

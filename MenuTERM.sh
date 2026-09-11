@@ -124,7 +124,7 @@ do
 #thunar
 
 				1) 
-					thunar $HOME/Zrust/
+					thunar /home/soleil/Zrust/term_nv/
 				;;
 
 
@@ -134,8 +134,8 @@ do
         10)
             $HOME/.Terminal/dispatch.sh $envRUST $LIBPROJECT   "TermNV" "Console"
         ;;
-        22) rm -f $HOME/.Terminal/TermNV
-            mv TermNV $HOME/.Terminal/TermNV
+        22) rm -f /home/soleil/.Terminal/TermNV
+            mv TermNV /home/soleil/.Terminal/TermNV
         ;;
 
 

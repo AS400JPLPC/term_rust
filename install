@@ -1,11 +1,7 @@
-cargo add gtk@0.18.2 --features v3_24
+cargo add gtk@0.19
 cargo add vte_sys
+cargo add pango@0.19
 cargo add glib
 cargo add libc
-cargo add pango
-cargo add pango-sys
-cargo add gdk
-cargo add gdk-sys
-cargo add glib
-cargo add glib-sys
 cargo add chrono
+cargo add once_cell
