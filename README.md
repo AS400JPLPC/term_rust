@@ -21,10 +21,14 @@ Gestion des programmes autorisés
 Seuls le programme comme nvim sont autorisés (sécurité)  
   
 ### Dépendances
-- `gtk-rs`
-- `vte-rs`
-- `libc`
-- `once_cell`
+[dependencies]
+chrono = "0.4.45"
+gtk = "0.19.0"
+libc = "0.2.189"
+once_cell = "1.21.4"
+vte-sys = "0.2.2"
+
+
 voir le fichier Cargo.toml  
   
 ### Fonctionnalités
